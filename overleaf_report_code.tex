@@ -1,0 +1,206 @@
+\documentclass[conference]{IEEEtran}
+\usepackage{cite}
+\usepackage{amsmath,amssymb,amsfonts}
+\usepackage{algorithmic}
+\usepackage{graphicx}
+\usepackage{textcomp}
+\usepackage{xcolor}
+\usepackage{booktabs} % For professional looking tables
+\usepackage{multirow}
+\usepackage{enumitem} % For better list formatting
+\def\BibTeX{{\rm B\kern-.05em{\sc i\kern-.025em b}\kern-.08em
+    T\kern-.1667em\lower.7ex\hbox{E}\kern-.125emX}}
+
+\begin{document}
+
+\title{Recommendation \& Information Diffusion in a Social Network: Comprehensive Experimental Evaluation \& Algorithmic Investigation}
+
+\author{\IEEEauthorblockN{Tooba Nadeem}
+\IEEEauthorblockA{\textit{Department of Software Engineering} \\
+\textit{National University of Computer and Emerging Sciences (FAST-NUCES)}\\
+Chiniot-Faisalabad, Pakistan \\
+l232550@nu.edu.pk}
+}
+
+\maketitle
+
+\begin{abstract}
+Modern online social platforms face a fundamental duality: delivering personalized content that satisfies individual user preferences while steering and understanding how recommended items cascade through social ties. This project presents an end-to-end, reproducible computational system that bridges personalized recommendation, social influence networks, and epidemic information diffusion. Addressing all eight core requirements of the assignment, all central algorithms are designed and implemented strictly from scratch based on course lecture foundations, avoiding black-box library replacements. The system incorporates: (1) an active social environment derived from the Epinions dataset with rigorous leakage prevention; (2) three distinct collaborative filtering engines (User-KNN, Item-KNN, and manual SGD-based SVD); (3) a socially-constrained neighborhood recommender isolating the trust parameter $\beta$; (4) preference-aware Independent Cascade (IC) and SIR Epidemic simulators; (5) submodular Greedy and CELF influence maximization with explicit audience overlap quantification; (6) group recommendation aggregation strategies; and (7) diffusion throttling interventions with runtime optimization benchmarking.
+\end{abstract}
+
+\begin{IEEEkeywords}
+Recommendation Systems, Social Network Analysis, Information Diffusion, Independent Cascade, SIR Model, Influence Maximization, CELF, Group Recommendation.
+\end{IEEEkeywords}
+
+\section{Introduction}
+Modern online social platforms face a fundamental duality: delivering personalized content that satisfies individual user preferences while steering and understanding how recommended items cascade through social ties. A recommendation that attracts many users may not satisfy their individual preferences, and a highly connected user may not be the best starting point for spreading content if their connections overlap heavily with others. 
+
+\textbf{Objectives \& Contributions:} This project addresses the assignment's core challenge by designing, implementing, and experimentally evaluating a joint system. The key contributions of this work are:
+\begin{itemize}[leftmargin=*]
+    \item \textbf{From-Scratch Implementation:} Core algorithms (KNN, SVD, IC, SIR, Greedy, CELF) are implemented manually using first principles, ensuring deep algorithmic understanding rather than relying on opaque library calls.
+    \item \textbf{Preference-Aware Diffusion:} Bridging the gap between recommendation and diffusion by modulating adoption probability based on predicted user preference, rather than assuming blind viral propagation.
+    \item \textbf{Rigorous Experimental Design:} Employing strict 80/20 leakage-free data splits, controlled ablation studies (e.g., $\beta$-sweeping), and Monte Carlo simulations with confidence bounds to ensure statistically valid conclusions.
+    \item \textbf{Computational Optimization:} Identifying the Monte Carlo simulation bottleneck in Influence Maximization and successfully implementing the CELF (Cost-Effective Lazy Forward) optimization, reducing evaluation time by $>92\%$.
+\end{itemize}
+
+\section{Representing the Social Environment}
+\textbf{Dataset \& Observed vs. Inferred Information:} The platform operates on the Epinions dataset, providing two observed modalities: (a) an explicit user-item rating matrix with ordinal scores in $\{1, 2, 3, 4, 5\}$ (664,825 entries), and (b) a directed social trust network $G=(V, E)$ where a directed edge $(u, v)$ signifies that user $u$ explicitly trusts user $v$ (487,184 edges). Unrated entries represent unobserved missing data, not zeros. Inferred information includes normalized user preference deviations, Pearson correlations, and latent preference vectors.
+
+\textbf{Data Integrity \& Leakage Prevention:} To rigorously evaluate unseen items without train-test leakage, ratings for each user are partitioned into an 80\% training set and a 20\% held-out test set. Crucially, user means and item baselines are computed \textit{strictly} over the training partition. Furthermore, to guarantee dense interaction between social diffusion and recommendation, an \textit{induced active core} of users possessing both sufficient ratings and social ties is extracted. This prevents isolated nodes from artificially deflating diffusion spread metrics.
+
+\section{Preference Learning \& Recommendation Approaches}
+The assignment required implementing two substantially different approaches from scratch. I implemented three to provide a comprehensive baseline comparison, each chosen for distinct structural advantages:
+
+\begin{itemize}[leftmargin=*]
+    \item \textbf{Approach A: Memory-Based User-KNN:} Chosen to capture local peer dynamics. It identifies like-minded peers by evaluating Pearson correlation on co-rated items. Predictions are generated via the standard neighborhood formula, making it highly interpretable.
+    \item \textbf{Approach B: Memory-Based Item-KNN:} Chosen for its stability in sparse environments. It computes adjusted cosine similarity between items based on co-rating users, which is less susceptible to user-specific rating scale biases.
+    \item \textbf{Approach C: Model-Based Latent Factor Model (SVD):} Chosen to capture global latent patterns. It decomposes interactions into latent spaces via manual stochastic gradient descent (SGD) updates: $P_u \leftarrow P_u + \eta(e_{u,i}Q_i - \lambda P_u)$.
+\end{itemize}
+
+% Fixed table placement - spans both columns
+\begin{table*}[!t]
+\caption{Recommender Model Comparison on Held-Out Test Set}
+\label{tab:model_comparison}
+\centering
+\small
+\begin{tabular}{lcccccc}
+\toprule
+\textbf{Model} & \textbf{MAE} & \textbf{RMSE} & \textbf{P@10} & \textbf{R@10} & \textbf{NDCG@10} & \textbf{Spearman} \\
+\midrule
+User-KNN & 0.8839 & 1.1923 & 0.561 & 0.681 & 0.889 & 0.255 \\
+Item-KNN & 0.8828 & 1.1554 & 0.545 & 0.675 & 0.881 & 0.234 \\
+SVD (MF) & \textbf{0.8592} & \textbf{1.0966} & \textbf{0.563} & \textbf{0.684} & \textbf{0.903} & \textbf{0.323} \\
+\bottomrule
+\end{tabular}
+\end{table*}
+
+\textbf{Cold-Start \& Limited History Analysis:} To investigate behavior under limited histories, I explicitly segmented users into Cold ($\le 5$ ratings), Warm (6-20 ratings), and Dense ($>20$ ratings) tiers. As shown in Fig. \ref{fig:req2_cold_start}, User-KNN suffers significant performance degradation on cold users due to insufficient co-rated items to compute reliable Pearson correlations. In contrast, Item-KNN and SVD exhibit greater stability. This experiment validates the necessity of multi-model ensembles in real-world platforms.
+
+\begin{figure}[!t]
+\centering
+\includegraphics[width=\linewidth]{req2_model_performance.png}
+\caption{Predictive Error (RMSE) and Ranking Quality (NDCG@10) across Recommender Architectures.}
+\label{fig:req2_model_performance}
+\end{figure}
+
+\begin{figure}[!t]
+\centering
+\includegraphics[width=\linewidth]{req2_cold_start_analysis.png}
+\caption{Recommendation Error (Test RMSE) across User History Density Tiers, highlighting User-KNN vulnerability.}
+\label{fig:req2_cold_start}
+\end{figure}
+
+\section{Incorporating Social Relationships}
+The assignment required extending a recommendation approach to use the social network and isolating the effect of social information. I extended the User-KNN model using a controllable convex blending parameter $\beta \in [0, 1]$:
+\begin{equation}
+w(u, v) = (1 - \beta) \cdot sim_{rating}(u, v) + \beta \cdot \mathbb{I}(v \in Friends(u))
+\end{equation}
+This design allows for a controlled ablation study. When $\beta = 0.0$, the model is pure collaborative filtering. When $\beta = 1.0$, it is pure social recommendation. 
+
+\textbf{When Social Information Improves vs. Degrades:} The $\beta$-sweep experiment (Fig. \ref{fig:req3_beta}) reveals a critical platform design insight. For cold users, social trust ties act as a strong regularizing prior, rescuing performance where rating similarity is noisy or undefined. However, for dense users with well-established preference profiles, forcing $\beta \to 1.0$ \textit{increases} RMSE. This proves that social friendship does not imply identical taste in every product category, and over-relying on it introduces social bias and restricts recommendation diversity.
+
+\begin{figure}[!t]
+\centering
+\includegraphics[width=\linewidth]{req3_social_beta_effect.png}
+\caption{Empirical Effect of Social Weight ($\beta$) on Rating Error and Ranking Quality, demonstrating the cold-start rescue vs. dense-user degradation trade-off.}
+\label{fig:req3_beta}
+\end{figure}
+
+\section{Adoption \& Information Spread Dynamics}
+The assignment required distinguishing between receiving a recommendation, becoming exposed, and actually adopting. I implemented a \textbf{Preference-Aware Diffusion Model}, which is a significant improvement over standard blind diffusion models. 
+
+\textbf{Three Distinct Platform Stages:} (1) \textit{Seed:} User is directly targeted by the recommender. (2) \textit{Exposed:} An un-adopted user receives shares from active neighbors. (3) \textit{Adopting:} Adoption is joint. An exposed user adopts only if the influence transmission succeeds \textbf{AND} the user's predicted item preference satisfies $\hat{r}(u, i) \ge \theta$. 
+
+\textbf{Model Differences:} I implemented both the Independent Cascade (IC) model and the SIR Epidemic model. In IC, newly activated nodes receive exactly one chance to activate neighbors in discrete steps. In SIR, infected nodes continuously attempt to infect susceptible neighbors at rate $\beta$ until transitioning to Recovered (R) at rate $\gamma$. Repeated Monte Carlo runs (Fig. \ref{fig:req4_dynamics}) account for stochastic variance, proving that SIR generally yields wider, more sustained spread due to its continuous infection mechanism, while IC is more bursty and localized.
+
+\begin{figure}[!t]
+\centering
+\includegraphics[width=\linewidth]{req4_diffusion_model_dynamics.png}
+\caption{Independent Cascade (IC) Progression vs. SIR Epidemic Compartment Dynamics over Time.}
+\label{fig:req4_dynamics}
+\end{figure}
+
+\begin{figure}[!t]
+\centering
+\includegraphics[width=\linewidth]{req4_spread_vs_probability.png}
+\caption{Diffusion Spread vs. Transmission Probability, showing the non-linear tipping point of viral adoption.}
+\label{fig:req4_spread}
+\end{figure}
+
+\section{Influence Maximization Under Limited Budget}
+The assignment required a strategy considering \textit{additional spread contributed by a candidate} rather than individual popularity, while investigating overlapping audiences. 
+
+I compared Greedy Influence Maximization against Out-Degree Centrality, PageRank, and Random selection under budgets $k \in \{2, 5, 8, 12, 15, 20\}$. Greedy seed selection evaluates the marginal gain $\Delta \sigma(v | S) = \sigma(S \cup \{v\}) - \sigma(S)$ over Monte Carlo simulations.
+
+\textbf{The Audience Overlap Problem:} As quantified in Fig. \ref{fig:req5_overlap}, Degree Centrality naively picks the most connected nodes. However, in clustered social networks, top-degree nodes share massive audience overlap (Jaccard index $> 0.60$). Consequently, Degree Centrality wastes promotion budget on redundant reach. Greedy hill-climbing explicitly penalizes overlapping audiences, achieving superior marginal spread with lower redundancy, as proven by the widening performance gap in Fig. \ref{fig:req5_budget} as budget $k$ increases.
+
+\begin{figure}[!t]
+\centering
+\includegraphics[width=\linewidth]{req5_spread_vs_budget.png}
+\caption{Cascade Spread vs. Budget $k$ across Selection Strategies with Monte Carlo Confidence Bounds.}
+\label{fig:req5_budget}
+\end{figure}
+
+\begin{figure}[!t]
+\centering
+\includegraphics[width=\linewidth]{req5_audience_overlap.png}
+\caption{Audience Overlap (Jaccard Index) Analysis among Top Selected Seeds, proving Degree Centrality's redundancy.}
+\label{fig:req5_overlap}
+\end{figure}
+
+\section{Group Recommendation \& Network Adoption}
+The assignment required extending the system to recommend to a group with conflicting preferences and analyzing if the group-preferred item spreads most widely. 
+
+I implemented three aggregation strategies: Average Satisfaction, Least Misery, and Most Pleasure. I then conducted a novel pipeline experiment: seeding the group-selected item into the network using the group members as initial diffusion seeds.
+
+\textbf{The Consensus vs. Virality Trade-off:} The results (Fig. \ref{fig:req6_group}) reveal a distinct, counter-intuitive trade-off. \textit{Least Misery} guarantees high consensus and eliminates extreme displeasure within the group, but it inherently selects conservative, moderate items. These safe items generate modest downstream cascades. In contrast, \textit{Most Pleasure} or \textit{Average Satisfaction} picks items with higher polarization or viral appeal, which achieve significantly wider downstream diffusion through the social network. This proves that maximizing group harmony often comes at the direct expense of platform-wide virality.
+
+\begin{figure}[!t]
+\centering
+\includegraphics[width=\linewidth]{req6_group_satisfaction_vs_spread.png}
+\caption{Group Satisfaction vs. Subsequent Network Adoption Spread Trade-off.}
+\label{fig:req6_group}
+\end{figure}
+
+\section{Complete System Evaluation Protocol}
+To rigorously assess the complete system (Requirement 7), I designed experiments that separately assess recommendation quality, diffusion behavior, and their interaction, ensuring no training-test leakage. 
+\begin{itemize}[leftmargin=*]
+    \item \textbf{Recommendation Metrics:} MAE, RMSE, Precision@K, Recall@K, NDCG@K, and Spearman's $\rho$.
+    \item \textbf{Classification Accuracy:} Defined only where meaningful (positive rating $r \ge 4$ vs. negative $r < 4$), avoiding the pitfall of treating missing data as negative.
+    \item \textbf{Diffusion Metrics:} Monte Carlo variability (mean $\pm$ standard deviation) is reported rather than single-run deterministic results, ensuring statistical validity.
+\end{itemize}
+
+\section{Intervention \& Computational Cost}
+\textbf{Diffusion Interventions:} To mitigate viral propagation of unvetted content, I evaluated Degree Capping (limiting out-links) and Transmission Damping. Restricting out-degree caps the maximum forward reach per node, analogous to real-world platform features like WhatsApp's forward limits. As shown in Fig. \ref{fig:req8_intervention}, moderate degree capping dramatically reduces runaway viral cascades while \textit{increasing} the average satisfaction of actual adopters, as it filters out low-quality, purely viral noise.
+
+\textbf{Computational Bottleneck \& CELF Optimization:} Standard Greedy requires $\mathcal{O}(k \cdot |V| \cdot R)$ Monte Carlo simulations, which becomes prohibitive on large networks. By exploiting the submodularity of influence spread (diminishing marginal returns), I implemented CELF (Cost-Effective Lazy Forward). CELF maintains a priority queue of marginal gains and re-evaluates nodes lazily. As benchmarked in Fig. \ref{fig:req8_celf}, CELF slashes Monte Carlo evaluations by over 92\% and achieves massive speedups while discovering the \textit{exact same} optimal seed set as standard Greedy.
+
+\begin{figure}[!t]
+\centering
+\includegraphics[width=\linewidth]{req8_intervention_spread_vs_satisfaction.png}
+\caption{Effect of Diffusion Interventions on Spread vs. User Satisfaction.}
+\label{fig:req8_intervention}
+\end{figure}
+
+\begin{figure}[!t]
+\centering
+\includegraphics[width=\linewidth]{req8_celf_vs_greedy_runtime.png}
+\caption{Runtime Benchmark and Evaluation Reduction: Standard Greedy vs. CELF Optimization.}
+\label{fig:req8_celf}
+\end{figure}
+
+\section{Final Discussion \& Conclusion}
+\textbf{When does combining recommendation with social influence improve outcomes vs. create trade-offs?} 
+Evidence from this project demonstrates that combining recommendation with social influence yields the highest benefits under \textit{information scarcity} (cold users and niche items), where social trust serves as a reliable structural proxy for preference. 
+
+However, as interaction density increases, relying heavily on social ties creates severe trade-offs:
+\begin{enumerate}[leftmargin=*]
+    \item \textbf{Echo Chambers \& Social Homogeneity:} Heavy social weighting reduces recommendation diversity and reinforces filter bubbles, degrading RMSE for dense users.
+    \item \textbf{Consensus vs. Virality:} Content that maximizes group consensus (Least Misery) tends to be safe, generating modest cascade reach. Conversely, content that maximizes adoption spread often exploits emotional arousal or extreme preference, sacrificing minority satisfaction for viral scale.
+\end{enumerate}
+
+\textbf{Limitations:} The Epinions trust graph is static; real platforms exhibit dynamic relationship formation and decay. Furthermore, the model treats absent edges as lack of trust rather than explicit distrust, and uniform cascade probabilities understate individual adoption thresholds.
+
+\textbf{Conclusion:} A balanced, hybrid approach---leveraging social regularizers for sparse nodes and transitioning to latent collaborative signals as user histories mature, combined with submodular CELF seed selection and moderate degree capping---provides the optimal equilibrium between individual recommendation accuracy and responsible information diffusion.
+
+\end{document}
